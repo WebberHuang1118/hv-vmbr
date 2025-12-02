@@ -16,6 +16,6 @@ spec:
               name: minio-credentials
         command: ["sleep"]
         args:
-          - "3600"
+          - "7200"
         securityContext:
           privileged: true

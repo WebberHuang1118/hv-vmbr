@@ -181,3 +181,90 @@ spec:
               restic snapshots --json
             fi
 `
+
+// VMBackupConfigJob backs up VM configuration to restic repository.
+const VMBackupConfigJob = `
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{NAME}}
+  namespace: {{NAMESPACE}}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 30
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: backup-config
+        image: webberhuang/restic-accelerated:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+          - export AWS_ACCESS_KEY_ID={{AWS_ACCESS_KEY_ID}} && export AWS_SECRET_ACCESS_KEY={{AWS_SECRET_ACCESS_KEY}} && export RESTIC_REPOSITORY={{RESTIC_REPOSITORY}} && export RESTIC_PASSWORD={{RESTIC_PASSWORD}} && cat /config/{{FILENAME}} | restic backup --stdin --stdin-filename /config/{{FILENAME}} --tag=ns={{NAMESPACE}},sn={{SNAPSHOT}},type=vm-config
+        volumeMounts:
+        - name: config
+          mountPath: /config
+      volumes:
+      - name: config
+        configMap:
+          name: {{CONFIGMAP_NAME}}
+`
+
+// VMRestoreConfigJob restores VM configuration from restic repository.
+const VMRestoreConfigJob = `
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{NAME}}
+  namespace: {{NAMESPACE}}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 30
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: restore-config
+        image: webberhuang/restic-accelerated:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            export AWS_ACCESS_KEY_ID={{AWS_ACCESS_KEY_ID}}
+            export AWS_SECRET_ACCESS_KEY={{AWS_SECRET_ACCESS_KEY}}
+            export RESTIC_REPOSITORY={{RESTIC_REPOSITORY}}
+            export RESTIC_PASSWORD={{RESTIC_PASSWORD}}
+            
+            restic snapshots --tag=ns={{NAMESPACE}},sn={{BACKUP_NAME}},type=vm-config --json 2>/dev/null > /tmp/snapshots.json
+            SNAPSHOT_ID=$(cat /tmp/snapshots.json | grep -o '"short_id":"[^"]*"' | head -n1 | cut -d'"' -f4)
+            
+            if [ -z "$SNAPSHOT_ID" ]; then
+              echo "Error: No snapshot found"
+              exit 1
+            fi
+            
+            restic dump $SNAPSHOT_ID / 2>/dev/null | tar -xO
+`
+
+// ResticForgetJob deletes a restic snapshot by ID.
+const ResticForgetJob = `
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{NAME}}
+  namespace: {{NAMESPACE}}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 30
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: delete-snapshot
+        image: webberhuang/restic-accelerated:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+          - export AWS_ACCESS_KEY_ID={{AWS_ACCESS_KEY_ID}} && export AWS_SECRET_ACCESS_KEY={{AWS_SECRET_ACCESS_KEY}} && export RESTIC_REPOSITORY={{RESTIC_REPOSITORY}} && export RESTIC_PASSWORD={{RESTIC_PASSWORD}} && restic forget {{SNAPSHOT_ID}} --prune
+`

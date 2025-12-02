@@ -288,36 +288,66 @@ func GetPVCVolumeName(pvcName, namespace string) (string, error) {
 	return pvc.Spec.VolumeName, nil
 }
 
-// StreamJobProgressPercentage streams logs from a job's container and parses progress metrics.
-func StreamJobProgressPercentage(jobName, namespace, container, progressLabel string) error {
-	var podName string
-	const retryCount = 10
+// GetPVCSIDriver retrieves the CSI driver name from the PV bound to the PVC.
+// It first checks the PV's CSI driver, then falls back to PVC annotations.
+func GetPVCSIDriver(pvcName, namespace string) (string, error) {
+	pvc, err := Clientset.CoreV1().PersistentVolumeClaims(namespace).Get(context.Background(), pvcName, metav1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+
+	// If PVC is bound to a PV, get the CSI driver from the PV
+	if pvc.Spec.VolumeName != "" {
+		pv, err := Clientset.CoreV1().PersistentVolumes().Get(context.Background(), pvc.Spec.VolumeName, metav1.GetOptions{})
+		if err == nil && pv.Spec.CSI != nil {
+			return pv.Spec.CSI.Driver, nil
+		}
+	}
+
+	// Fall back to PVC annotation
+	if driver, ok := pvc.Annotations["volume.kubernetes.io/storage-provisioner"]; ok {
+		return driver, nil
+	}
+
+	// Last resort: use storage class name
+	if pvc.Spec.StorageClassName != nil {
+		return *pvc.Spec.StorageClassName, nil
+	}
+
+	return "", fmt.Errorf("unable to determine CSI driver for PVC %s", pvcName)
+}
+
+// findRunningPod locates a running pod for the given job and container.
+func findRunningPod(jobName, namespace, container string, retryCount int) (string, error) {
+	labelSelector := fmt.Sprintf("job-name=%s", jobName)
+
 	for i := 0; i < retryCount; i++ {
-		labelSelector := fmt.Sprintf("job-name=%s", jobName)
 		podList, err := Clientset.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{
 			LabelSelector: labelSelector,
 		})
 		if err != nil {
-			return fmt.Errorf("error listing pods for job %s: %w", jobName, err)
+			return "", fmt.Errorf("error listing pods for job %s: %w", jobName, err)
 		}
+
 		for _, pod := range podList.Items {
 			for _, cs := range pod.Status.ContainerStatuses {
 				if cs.Name == container && cs.State.Running != nil {
-					podName = pod.Name
-					break
+					return pod.Name, nil
 				}
 			}
-			if podName != "" {
-				break
-			}
 		}
-		if podName != "" {
-			break
-		}
+
 		time.Sleep(6 * time.Second)
 	}
-	if podName == "" {
-		return fmt.Errorf("no running pod for job %s with container %s after multiple retries", jobName, container)
+
+	return "", fmt.Errorf("no running pod for job %s with container %s after %d retries", jobName, container, retryCount)
+}
+
+// StreamJobProgressPercentage streams logs from a job's container and parses progress metrics.
+func StreamJobProgressPercentage(jobName, namespace, container, progressLabel string) error {
+	podName, err := findRunningPod(jobName, namespace, container, 10)
+	if err != nil {
+		return err
 	}
 
 	opts := &corev1.PodLogOptions{
@@ -331,22 +361,28 @@ func StreamJobProgressPercentage(jobName, namespace, container, progressLabel st
 	}
 	defer stream.Close()
 
+	return parseProgressLogs(stream, progressLabel)
+}
+
+// parseProgressLogs scans log stream and prints progress updates.
+func parseProgressLogs(stream io.ReadCloser, progressLabel string) error {
 	scanner := bufio.NewScanner(stream)
 	format := progressLabel + " %d/%d bytes (%f%%)"
+
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.Contains(line, progressLabel) {
-			var current, total int
-			var percent float64
-			if n, err := fmt.Sscanf(line, format, &current, &total, &percent); err == nil && n == 3 {
-				log.Printf("progress: %.2f%%", percent)
-			}
+		if !strings.Contains(line, progressLabel) {
+			continue
+		}
+
+		var current, total int
+		var percent float64
+		if n, _ := fmt.Sscanf(line, format, &current, &total, &percent); n == 3 {
+			log.Printf("progress: %.2f%%", percent)
 		}
 	}
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("error scanning log stream: %w", err)
-	}
-	return nil
+
+	return scanner.Err()
 }
 
 // GetJobLogs retrieves complete logs (non-streaming) from the first pod of the given job and container.

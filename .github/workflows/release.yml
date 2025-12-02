@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Triggers on version tags like v1.0.0, v2.1.3, etc.
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.4'
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Build multi-architecture binaries
+        run: |
+          # Create build directory
+          mkdir -p dist
+          
+          # Build for Linux AMD64
+          echo "Building for Linux AMD64..."
+          GOOS=linux GOARCH=amd64 go build -o dist/restic-backup-linux-amd64 ./cmd/main.go
+          
+          # Build for Linux ARM64
+          echo "Building for Linux ARM64..."
+          GOOS=linux GOARCH=arm64 go build -o dist/restic-backup-linux-arm64 ./cmd/main.go
+          
+          # Build for macOS AMD64
+          echo "Building for macOS AMD64..."
+          GOOS=darwin GOARCH=amd64 go build -o dist/restic-backup-darwin-amd64 ./cmd/main.go
+          
+          # Build for macOS ARM64 (Apple Silicon)
+          echo "Building for macOS ARM64..."
+          GOOS=darwin GOARCH=arm64 go build -o dist/restic-backup-darwin-arm64 ./cmd/main.go
+          
+          # Build for Windows AMD64
+          echo "Building for Windows AMD64..."
+          GOOS=windows GOARCH=amd64 go build -o dist/restic-backup-windows-amd64.exe ./cmd/main.go
+
+      - name: Create tarball
+        run: |
+          # Create a tarball containing all binaries
+          tar -czf dist/restic-backup-${{ steps.get_version.outputs.VERSION }}-all-platforms.tar.gz -C dist \
+            restic-backup-linux-amd64 \
+            restic-backup-linux-arm64 \
+            restic-backup-darwin-amd64 \
+            restic-backup-darwin-arm64 \
+            restic-backup-windows-amd64.exe
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/restic-backup-linux-amd64
+            dist/restic-backup-linux-arm64
+            dist/restic-backup-darwin-amd64
+            dist/restic-backup-darwin-arm64
+            dist/restic-backup-windows-amd64.exe
+            dist/restic-backup-${{ steps.get_version.outputs.VERSION }}-all-platforms.tar.gz
+            dist/checksums.txt
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
