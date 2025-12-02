@@ -3,20 +3,30 @@ package main
 import (
 	"flag"
 	"log"
+	"strings"
 	"time"
 
-	"github.com/webberhuang/hv-vmbr/pkg/backup"
 	"github.com/webberhuang/hv-vmbr/pkg/find"
 	"github.com/webberhuang/hv-vmbr/pkg/k8s"
 	"github.com/webberhuang/hv-vmbr/pkg/manifests"
-	"github.com/webberhuang/hv-vmbr/pkg/restore"
 	"github.com/webberhuang/hv-vmbr/pkg/vm"
 )
 
+// tagsFlag allows multiple -tag flags
+type tagsFlag []string
+
+func (t *tagsFlag) String() string {
+	return strings.Join(*t, ",")
+}
+
+func (t *tagsFlag) Set(value string) error {
+	*t = append(*t, value)
+	return nil
+}
+
 func main() {
 	// Define command-line flags.
-	mode := flag.String("mode", "", "Operation mode: backup, restore, find, vm-backup, or vm-restore")
-	pvcName := flag.String("pvc", "", "Name of the PVC to backup or the destination PVC for restore")
+	mode := flag.String("mode", "", "Operation mode: find, vm-backup, or vm-restore")
 	namespace := flag.String("namespace", "backup", "Kubernetes namespace (default: backup)")
 	kubeconfig := flag.String("kubeconfig", "", "Path to kubeconfig file (optional)")
 	vsc := flag.String("vsc", "my-volumesnapshotclass", "VolumeSnapshotClass name to use")
@@ -24,11 +34,9 @@ func main() {
 	awsSecret := flag.String("awssecret", "", "AWS_SECRET_ACCESS_KEY for restic")
 	repository := flag.String("repository", "", "RESTIC_REPOSITORY value")
 	password := flag.String("password", "", "RESTIC_PASSWORD value")
-	// For restore mode:
-	sourcePV := flag.String("sourcepv", "", "Original source PV name used for the backup (required in restore mode)")
-	sourceNs := flag.String("sourcens", "", "Original source PVC namespace used for the backup (required in restore mode)")
-	// For backup and find modes, the snapshot tag is required.
-	snapshot := flag.String("snapshot", "", "Tag value for snapshot name (used by backup and find subcommands)")
+	// For find mode, tags are optional and can be specified multiple times
+	var tags tagsFlag
+	flag.Var(&tags, "tag", "Tag for filtering snapshots (can be specified multiple times, e.g., -tag ns=backup -tag sn=vm1-b). If not specified, lists all snapshots.")
 	// For VM backup/restore modes:
 	vmName := flag.String("vm", "", "Name of the VirtualMachine to backup or restore")
 	backupName := flag.String("backupname", "", "Name for the VM backup (required for vm-backup and vm-restore)")
@@ -36,8 +44,8 @@ func main() {
 	flag.Parse()
 
 	// Combined flag checks.
-	if *mode != "backup" && *mode != "restore" && *mode != "find" && *mode != "vm-backup" && *mode != "vm-restore" {
-		log.Fatal("❌ Please specify -mode=backup, -mode=restore, -mode=find, -mode=vm-backup, or -mode=vm-restore")
+	if *mode != "find" && *mode != "vm-backup" && *mode != "vm-restore" {
+		log.Fatal("❌ Please specify -mode=find, -mode=vm-backup, or -mode=vm-restore")
 	}
 	if *namespace == "" {
 		log.Fatal("❌ Please provide a valid namespace using -namespace")
@@ -48,27 +56,6 @@ func main() {
 
 	// Mode-specific checks.
 	switch *mode {
-	case "backup":
-		if *pvcName == "" {
-			log.Fatal("❌ For backup mode, please provide the PVC name using -pvc")
-		}
-		if *snapshot == "" {
-			log.Fatal("❌ For backup mode, please provide a snapshot tag value using -snapshot")
-		}
-	case "restore":
-		if *pvcName == "" {
-			log.Fatal("❌ For restore mode, please provide the destination PVC name using -pvc")
-		}
-		if *sourcePV == "" {
-			log.Fatal("❌ For restore mode, please provide the source PV name using -sourcepv")
-		}
-		if *snapshot == "" {
-			log.Fatal("❌ For restore mode, please provide a snapshot tag value using -snapshot")
-		}
-	case "find":
-		if *snapshot == "" {
-			log.Fatal("❌ For find mode, please provide a snapshot tag value using -snapshot")
-		}
 	case "vm-backup":
 		if *vmName == "" {
 			log.Fatal("❌ For vm-backup mode, please provide the VM name using -vm")
@@ -108,25 +95,24 @@ func main() {
 	checkErr := k8s.WaitForJob(checkJobName, *namespace, 10*time.Second)
 	repoInitialized := (checkErr == nil)
 
-	// For restore, find, and vm-restore modes, repository must be initialized.
-	if (*mode == "restore" || *mode == "find" || *mode == "vm-restore") && !repoInitialized {
-		log.Fatal("❌ Repository is not initialized; cannot run restore, find, or vm-restore subcommand")
+	// For find and vm-restore modes, repository must be initialized.
+	if (*mode == "find" || *mode == "vm-restore") && !repoInitialized {
+		log.Fatal("❌ Repository is not initialized; cannot run find or vm-restore subcommand")
 	}
 
 	switch *mode {
-	case "backup":
-		backup.RunBackup(*namespace, *pvcName, *snapshot, *vsc, *awsID, *awsSecret, *repository, *password, repoInitialized)
-	case "restore":
-		restore.RunRestore(*namespace, *pvcName, *sourceNs, *sourcePV, *snapshot, *awsID, *awsSecret, *repository, *password)
 	case "find":
-		snapshotID, err := find.RunFind(*namespace, *snapshot, *awsID, *awsSecret, *repository, *password)
+		snapshots, err := find.RunFind(*namespace, tags, *awsID, *awsSecret, *repository, *password)
 		if err != nil {
 			log.Fatalf("❌ Find job failed: %v", err)
 		}
-		if snapshotID != "" {
-			log.Printf("✅ Snapshot found with ID: %s", snapshotID)
+		if len(snapshots) > 0 {
+			log.Printf("✅ Found %d snapshot(s):", len(snapshots))
+			for _, snap := range snapshots {
+				log.Printf("  ID: %s, Time: %s, Tags: %v", snap.ShortID, snap.Time.Format("2006-01-02 15:04:05"), snap.Tags)
+			}
 		} else {
-			log.Println("❌ Snapshot not found.")
+			log.Println("❌ No snapshots found.")
 		}
 	case "vm-backup":
 		vm.RunVMBackup(*namespace, *vmName, *backupName, *vsc, *awsID, *awsSecret, *repository, *password, repoInitialized)

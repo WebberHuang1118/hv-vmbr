@@ -151,7 +151,7 @@ spec:
           claimName: {{PVC_NAME}}
 `
 
-// FindJob defines the job to execute "restic snapshots" with tag filtering and JSON output.
+// FindJob defines the job to execute "restic snapshots" with optional tag filtering and JSON output.
 const FindJob = `
 apiVersion: batch/v1
 kind: Job
@@ -170,5 +170,14 @@ spec:
         imagePullPolicy: IfNotPresent
         command: ["/bin/sh", "-c"]
         args:
-          - export AWS_ACCESS_KEY_ID={{AWS_ACCESS_KEY_ID}} && export AWS_SECRET_ACCESS_KEY={{AWS_SECRET_ACCESS_KEY}} && export RESTIC_REPOSITORY={{RESTIC_REPOSITORY}} && export RESTIC_PASSWORD={{RESTIC_PASSWORD}} && restic snapshots --tag=ns={{NAMESPACE}},sn={{SNAPSHOT_NAME}} --json
+          - |
+            export AWS_ACCESS_KEY_ID={{AWS_ACCESS_KEY_ID}}
+            export AWS_SECRET_ACCESS_KEY={{AWS_SECRET_ACCESS_KEY}}
+            export RESTIC_REPOSITORY={{RESTIC_REPOSITORY}}
+            export RESTIC_PASSWORD={{RESTIC_PASSWORD}}
+            if [ -n "{{TAG_FILTER}}" ]; then
+              restic snapshots --tag={{TAG_FILTER}} --json
+            else
+              restic snapshots --json
+            fi
 `

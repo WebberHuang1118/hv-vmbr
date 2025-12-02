@@ -26,7 +26,7 @@ func RunBackup(namespace, pvcName, snapshot, vsc, awsID, awsSecret, repository, 
 
 	// Check for existing backup snapshots if the repository is initialized.
 	if repoInitialized {
-		snapshotID, err := find.RunFind(namespace, snapshot, awsID, awsSecret, repository, password)
+		snapshotID, err := find.RunFindByID(namespace, snapshot, awsID, awsSecret, repository, password)
 		if err == nil {
 			log.Fatalf("❌ Found existing backup snapshotID %s with same tags ns %s snapshot %s", snapshotID, namespace, snapshot)
 		}

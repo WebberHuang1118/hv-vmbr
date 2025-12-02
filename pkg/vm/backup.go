@@ -58,7 +58,7 @@ func RunVMBackup(namespace, vmName, backupName, vsc, awsID, awsSecret, repositor
 		repoInitialized = true // After first backup, repo is initialized
 
 		// Find the snapshot ID that was just created
-		snapshotID, err := find.RunFind(namespace, pvcSnapshotTag, awsID, awsSecret, repository, password)
+		snapshotID, err := find.RunFindByID(namespace, pvcSnapshotTag, awsID, awsSecret, repository, password)
 		if err != nil {
 			log.Fatalf("❌ Failed to verify backup for PVC %s: %v", pvcName, err)
 		}

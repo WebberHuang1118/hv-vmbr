@@ -11,7 +11,7 @@ import (
 
 // RunRestore executes the restore workflow.
 func RunRestore(namespace, destPVC, sourceNs, sourcePV, snapshot, awsID, awsSecret, repository, password string) {
-	snapshotID, err := find.RunFind(sourceNs, snapshot, awsID, awsSecret, repository, password)
+	snapshotID, err := find.RunFindByID(sourceNs, snapshot, awsID, awsSecret, repository, password)
 	if err != nil {
 		log.Fatalf("❌ Failed to find backup %v with ns %s snapshot %s", err, sourceNs, snapshot)
 	}

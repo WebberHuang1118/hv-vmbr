@@ -1,6 +1,6 @@
-# Backup and Restore for Kubernetes Persistent Volume Claims (PVCs)
+# Backup and Restore for KubeVirt VirtualMachines
 
-This project provides tools to back up and restore Kubernetes PVCs and KubeVirt VirtualMachines using Restic and MinIO.
+This project provides tools to back up and restore KubeVirt VirtualMachines using Restic and MinIO.
 
 ## Project Structure
 
@@ -32,83 +32,13 @@ This project provides tools to back up and restore Kubernetes PVCs and KubeVirt 
 ### Command-Line Parameters
 
 Common parameters for all modes:
-- `-mode`: Operation mode (`backup`, `restore`, `find`, `vm-backup`, or `vm-restore`)
+- `-mode`: Operation mode (`find`, `vm-backup`, or `vm-restore`)
 - `-namespace`: Kubernetes namespace (default: `backup`)
 - `-kubeconfig`: Path to kubeconfig file (optional, uses default kubeconfig if not specified)
 - `-awsid`: AWS_ACCESS_KEY_ID for Restic S3 storage
 - `-awssecret`: AWS_SECRET_ACCESS_KEY for Restic S3 storage
 - `-repository`: RESTIC_REPOSITORY value (e.g., `s3:http://endpoint:port/bucket`)
 - `-password`: RESTIC_PASSWORD value
-
-### PVC Backup Mode
-
-To back up a PVC:
-
-```bash
-$ ./bin/restic-backup \
-    -awsid <AWS_ACCESS_KEY_ID> \
-    -awssecret <AWS_SECRET_ACCESS_KEY> \
-    -password <RESTIC_PASSWORD> \
-    -repository s3:<S3_ENDPOINT>/<BUCKET_NAME> \
-    -mode backup \
-    -pvc <PVC_NAME> \
-    -vsc <VOLUME_SNAPSHOT_CLASS> \
-    -namespace <NAMESPACE> \
-    -snapshot <SNAPSHOT_TAG>
-```
-
-Example:
-
-```bash
-$ ./bin/restic-backup \
-    -awsid minioadmin \
-    -awssecret minioadmin \
-    -password abc \
-    -repository s3:http://192.188.0.56:9000/restic-testing \
-    -mode backup \
-    -pvc vol1 \
-    -vsc lvm-snapshot \
-    -namespace backup \
-    -snapshot s1
-```
-
-**Note:** The repository will be automatically initialized if it doesn't exist.
-
-### PVC Restore Mode
-
-To restore a PVC:
-
-```bash
-$ ./bin/restic-backup \
-    -awsid <AWS_ACCESS_KEY_ID> \
-    -awssecret <AWS_SECRET_ACCESS_KEY> \
-    -password <RESTIC_PASSWORD> \
-    -repository s3:<S3_ENDPOINT>/<BUCKET_NAME> \
-    -mode restore \
-    -pvc <PVC_NAME> \
-    -sourcepv <SOURCE_PV_NAME> \
-    -sourcens <SOURCE_NAMESPACE> \
-    -namespace <NAMESPACE> \
-    -snapshot <SNAPSHOT_TAG>
-```
-
-Example:
-
-```bash
-$ ./bin/restic-backup \
-    -awsid minioadmin \
-    -awssecret minioadmin \
-    -password abc \
-    -repository s3:http://192.188.0.56:9000/restic-testing \
-    -mode restore \
-    -pvc vol2 \
-    -sourcepv pvc-c42288e1-aa3e-4022-8e2c-f426b14099dd \
-    -sourcens backup \
-    -namespace backup \
-    -snapshot s1
-```
-
-**Note:** The repository must be initialized before performing a restore operation.
 
 ### VM Backup Mode
 
@@ -235,7 +165,7 @@ Example YAML files for Kubernetes jobs and configurations can be found in the `a
 - Restic installed and configured.
 - VolumeSnapshot CRDs and a VolumeSnapshotClass configured.
 
-**Note:** The Restic repository must be initialized before performing `restore`, `find`, or `vm-restore` operations. The tool will automatically initialize the repository during the first `backup` or `vm-backup` operation if it doesn't exist.
+**Note:** The Restic repository must be initialized before performing `find` or `vm-restore` operations. The tool will automatically initialize the repository during the first `vm-backup` operation if it doesn't exist.
 
 ## Building the Project
 
@@ -249,7 +179,6 @@ The compiled binary will be available in the `bin/` directory.
 
 ## Features
 
-- **PVC Backup/Restore**: Backup and restore individual Kubernetes PVCs using Restic
 - **VM Backup/Restore**: Complete backup and restore of KubeVirt VirtualMachines including:
   - All attached PVCs with data
   - Referenced secrets (cloud-init, SSH keys, etc.)
