@@ -1,0 +1,17 @@
+allowVolumeExpansion: false
+allowedTopologies:
+- matchLabelExpressions:
+  - key: topology.lvm.csi/node
+    values:
+    - harvester-node-0
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: lvm
+parameters:
+  type: dm-thin
+  vgName: vg001
+provisioner: lvm.driver.harvesterhci.io
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+

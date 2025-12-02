@@ -1,0 +1,27 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: block-restore-job
+  namespace: backup
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: restore
+          image: webberhuang/restic-accelerated:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              restic --verbose=2 dump latest block_pvc.img | /usr/local/bin/accelerated_io -device /dev/vol2 -mode=write
+          envFrom:
+            - secretRef:
+                name: minio-credentials
+          volumeDevices:
+            - name: vol2
+              devicePath: /dev/vol2
+      volumes:
+        - name: vol2
+          persistentVolumeClaim:
+            claimName: vol2

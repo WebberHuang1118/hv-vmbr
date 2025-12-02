@@ -1,0 +1,27 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: restic-init
+  namespace: backup
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: restic-init
+          image: webberhuang/restic-accelerated:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Checking if Restic repository is initialized..."
+              restic snapshots > /dev/null 2>&1
+              if [ $? -ne 0 ]; then
+                echo "Initializing Restic repository..."
+                restic init
+              else
+                echo "Restic repository is already initialized."
+              fi
+          envFrom:
+            - secretRef:
+                name: minio-credentials
