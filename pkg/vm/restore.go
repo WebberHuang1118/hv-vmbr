@@ -160,11 +160,7 @@ func restoreVolumes(config *VMBackupConfig, namespace, backupName, awsID, awsSec
 			log.Fatalf("❌ Failed to create PVC %s: %v", newPVCName, err)
 		}
 
-		// Wait for PVC to be bound
-		log.Printf("⌛ Waiting for PVC %s to become Bound...", newPVCName)
-		if err := k8s.WaitForPVCBound(newPVCName, namespace, 300*time.Second); err != nil {
-			log.Fatalf("❌ PVC %s did not become Bound: %v", newPVCName, err)
-		}
+		log.Printf("✅ PVC %s created successfully", newPVCName)
 
 		// Restore the data
 		restoreVolumeData(volumeBackup, newPVCName, namespace, backupName, oldPVCName, awsID, awsSecret, repository, password)

@@ -114,10 +114,7 @@ func createClonePVC(ctx *backupContext) {
 	}
 	ctx.pvcCloneCreated = true
 
-	log.Printf("⌛ Waiting for PVC clone %s to become Bound...", ctx.clonePVCName)
-	if err := k8s.WaitForPVCBound(ctx.clonePVCName, ctx.namespace, 300*time.Second); err != nil {
-		ctx.fatalCleanup("❌ PVC clone did not become Bound: %v", err)
-	}
+	log.Printf("✅ PVC clone %s created successfully", ctx.clonePVCName)
 }
 
 func getPVName(ctx *backupContext) string {
