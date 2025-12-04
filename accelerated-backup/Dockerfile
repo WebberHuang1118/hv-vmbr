@@ -1,11 +1,18 @@
-# Build with "$docker build --build-arg TARGETARCH=amd64 -t webberhuang/restic-accelerated:latest ."
+# Multi-architecture Docker build
+# The restic-backup binary must be pre-built before running docker build
 
 # Stage 1: Build the accelerated_io binary
 FROM golang:1.21 as accelerated_io-builder
+
+# Use build arguments to support multi-architecture builds
+ARG TARGETARCH=amd64
+
 WORKDIR /app
-COPY accelerated_io.go .
+COPY accelerated-backup/accelerated_io.go .
 RUN go mod init accelerated_io && go mod tidy
-RUN CGO_ENABLED=0 go build -o /accelerated_io accelerated_io.go
+
+# Build for the target architecture
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -o /accelerated_io accelerated_io.go
 
 # Stage 2: Create the final minimal image
 FROM debian:bullseye
@@ -34,5 +41,9 @@ RUN echo "TARGETARCH is: ${TARGETARCH}" && \
 # Copy the accelerated_io binary from the builder stage
 COPY --from=accelerated_io-builder /accelerated_io /usr/local/bin/accelerated_io
 RUN chmod +x /usr/local/bin/accelerated_io
+
+# Copy the pre-built restic-backup binary for the target architecture
+COPY bin/restic-backup-linux-${TARGETARCH} /usr/local/bin/restic-backup
+RUN chmod +x /usr/local/bin/restic-backup
 
 CMD ["/bin/sh"]
