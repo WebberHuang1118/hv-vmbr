@@ -28,7 +28,7 @@ jobs:
         id: get_version
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
-      - name: Build multi-architecture binaries
+      - name: Build multi-architecture binaries (Linux only)
         run: |
           # Create build directory
           mkdir -p dist
@@ -36,32 +36,17 @@ jobs:
           # Build for Linux AMD64
           echo "Building for Linux AMD64..."
           GOOS=linux GOARCH=amd64 go build -o dist/restic-backup-linux-amd64 ./cmd/main.go
-          
+
           # Build for Linux ARM64
           echo "Building for Linux ARM64..."
           GOOS=linux GOARCH=arm64 go build -o dist/restic-backup-linux-arm64 ./cmd/main.go
-          
-          # Build for macOS AMD64
-          echo "Building for macOS AMD64..."
-          GOOS=darwin GOARCH=amd64 go build -o dist/restic-backup-darwin-amd64 ./cmd/main.go
-          
-          # Build for macOS ARM64 (Apple Silicon)
-          echo "Building for macOS ARM64..."
-          GOOS=darwin GOARCH=arm64 go build -o dist/restic-backup-darwin-arm64 ./cmd/main.go
-          
-          # Build for Windows AMD64
-          echo "Building for Windows AMD64..."
-          GOOS=windows GOARCH=amd64 go build -o dist/restic-backup-windows-amd64.exe ./cmd/main.go
 
       - name: Create tarball
         run: |
           # Create a tarball containing all binaries
           tar -czf dist/restic-backup-${{ steps.get_version.outputs.VERSION }}-all-platforms.tar.gz -C dist \
             restic-backup-linux-amd64 \
-            restic-backup-linux-arm64 \
-            restic-backup-darwin-amd64 \
-            restic-backup-darwin-arm64 \
-            restic-backup-windows-amd64.exe
+            restic-backup-linux-arm64
 
       - name: Generate checksums
         run: |
@@ -75,9 +60,6 @@ jobs:
           files: |
             dist/restic-backup-linux-amd64
             dist/restic-backup-linux-arm64
-            dist/restic-backup-darwin-amd64
-            dist/restic-backup-darwin-arm64
-            dist/restic-backup-windows-amd64.exe
             dist/restic-backup-${{ steps.get_version.outputs.VERSION }}-all-platforms.tar.gz
             dist/checksums.txt
           generate_release_notes: true
@@ -85,3 +67,45 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push Docker images for multi-arch
+        run: |
+          # Copy binaries to bin/ directory for Docker build
+          mkdir -p bin
+          cp dist/restic-backup-linux-amd64 bin/
+          cp dist/restic-backup-linux-arm64 bin/
+
+          cd accelerated-backup
+
+          # Build and push amd64 image
+          echo "Building Docker image for linux/amd64..."
+          docker build --build-arg TARGETARCH=amd64 -t ${{ secrets.DOCKER_USERNAME }}/restic-accelerated:${{ steps.get_version.outputs.VERSION }}-amd64 -f Dockerfile ..
+          docker push ${{ secrets.DOCKER_USERNAME }}/restic-accelerated:${{ steps.get_version.outputs.VERSION }}-amd64
+
+          # Build and push arm64 image
+          echo "Building Docker image for linux/arm64..."
+          docker build --build-arg TARGETARCH=arm64 -t ${{ secrets.DOCKER_USERNAME }}/restic-accelerated:${{ steps.get_version.outputs.VERSION }}-arm64 -f Dockerfile ..
+          docker push ${{ secrets.DOCKER_USERNAME }}/restic-accelerated:${{ steps.get_version.outputs.VERSION }}-arm64
+
+          # Create and push multi-arch manifest
+          echo "Creating multi-arch manifest..."
+          docker manifest create ${{ secrets.DOCKER_USERNAME }}/restic-accelerated:${{ steps.get_version.outputs.VERSION }} \
+            --amend ${{ secrets.DOCKER_USERNAME }}/restic-accelerated:${{ steps.get_version.outputs.VERSION }}-amd64 \
+            --amend ${{ secrets.DOCKER_USERNAME }}/restic-accelerated:${{ steps.get_version.outputs.VERSION }}-arm64
+          docker manifest push ${{ secrets.DOCKER_USERNAME }}/restic-accelerated:${{ steps.get_version.outputs.VERSION }}
+
+          # Also tag as latest
+          docker manifest create ${{ secrets.DOCKER_USERNAME }}/restic-accelerated:latest \
+            --amend ${{ secrets.DOCKER_USERNAME }}/restic-accelerated:${{ steps.get_version.outputs.VERSION }}-amd64 \
+            --amend ${{ secrets.DOCKER_USERNAME }}/restic-accelerated:${{ steps.get_version.outputs.VERSION }}-arm64
+          docker manifest push ${{ secrets.DOCKER_USERNAME }}/restic-accelerated:latest
+
+          echo "Docker images pushed successfully!"
+          echo "  - ${{ secrets.DOCKER_USERNAME }}/restic-accelerated:${{ steps.get_version.outputs.VERSION }} (multi-arch)"
+          echo "  - ${{ secrets.DOCKER_USERNAME }}/restic-accelerated:latest (multi-arch)"
